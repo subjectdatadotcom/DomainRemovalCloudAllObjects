@@ -181,24 +181,15 @@ foreach ($DomainToReplace in $Domains) {
                 }
             }
             catch {
+                Write-Host $ThisMailbox.UserPrincipalName -ForegroundColor DarkMagenta
                 # Capture General Errors
-                $ErrorLog += "General Error: $($_.Exception.Message)"
+                $ErrorLog += "General Error: $($_.Exception.Message)"                
                 $UserObj | Add-Member -MemberType NoteProperty -Name "GeneralError" -Value $ErrorLog
             }
-
-
-            # Store accumulated warnings and errors in a single field with clear identification
-            #$UserObj | Add-Member -MemberType NoteProperty -Name "ExceptionType" -Value "Warnings & Errors"
-            #$UserObj | Add-Member -MemberType NoteProperty -Name "Message" -Value (($WarningLog + $ErrorLog) -join " | ")
-
-            # Append to report
-            #$report += $UserObj
-
-            Write-host "CUrrent Object Completed"
         }
 
         # Handling MailUser - Completed - Yellow
-        elseif ($RecipientDetails -eq "MailUser") {
+        elseif ($RecipientType -eq "MailUser") {
              try {
                 $ThisMailUser = Get-MailUser -Identity $GUID
                 $UserObj | Add-Member -MemberType NoteProperty -Name "IsObjectSyncedAADC" -Value $ThisMailUser.IsDirSynced
@@ -295,19 +286,10 @@ foreach ($DomainToReplace in $Domains) {
                 $ErrorLog += "General MailUser Error: $($_.Exception.Message)"
                 $UserObj | Add-Member -MemberType NoteProperty -Name "GeneralError" -Value $ErrorLog
             }
-
-            # Store accumulated warnings and errors in a single field with clear identification
-            #$UserObj | Add-Member -MemberType NoteProperty -Name "ExceptionType" -Value "Warnings & Errors"
-            #$UserObj | Add-Member -MemberType NoteProperty -Name "Message" -Value (($WarningLog + $ErrorLog) -join " | ")
-
-            # Append to report
-            #$report += $UserObj
-
-            Write-host "CUrrent Object Completed"
         }
 
         # Handling Security Groups - Completed - Magenta
-        elseif ($RecipientDetails -match "MailUniversalDistributionGroup|MailUniversalSecurityGroup") {
+        elseif (($RecipientType -match "MailUniversalDistributionGroup|MailUniversalSecurityGroup") -and ($RecipientDetails -match "MailUniversalDistributionGroup|MailUniversalSecurityGroup")) {
             try {
                 # Fetch Distribution/Security Group Information
                 $ThisDistroGroup = Get-DistributionGroup -Identity $GUID
@@ -384,20 +366,11 @@ foreach ($DomainToReplace in $Domains) {
                 $ErrorLog += "General Group Error: $($_.Exception.Message)"
                 $UserObj | Add-Member -MemberType NoteProperty -Name "GeneralError" -Value $ErrorLog
             }
-
-            # Store accumulated warnings and errors in a single field with clear identification
-            #$UserObj | Add-Member -MemberType NoteProperty -Name "ExceptionType" -Value "Warnings & Errors"
-            #$UserObj | Add-Member -MemberType NoteProperty -Name "Message" -Value (($WarningLog + $ErrorLog) -join " | ")
-            
-            # Append to report
-            #$report += $UserObj
-
-            Write-host "CUrrent Object Completed"
         }
 
 
         # Handling MailContact - Completed - Dark Green
-        elseif ($RecipientDetails -eq "MailContact") {
+        elseif ($RecipientType -eq "MailContact") {
             try {
                 # Fetch Mail Contact Information
                 Write-Host "Mail Contact found - logging ONLY - " $Recipient.Identity -ForegroundColor DarkGreen
@@ -445,15 +418,10 @@ foreach ($DomainToReplace in $Domains) {
                 $ErrorLog += "General Mail Contact Error: $($_.Exception.Message)"
                 $UserObj | Add-Member -MemberType NoteProperty -Name "GeneralError" -Value $ErrorLog
             }
-        
-            # Append to report
-            #$report += $UserObj
-
-            Write-host "CUrrent Object Completed"
         }
         
         # Handling DynamicDistributionGroup - Completed - White
-        elseif ($RecipientDetails -eq "DynamicDistributionGroup") {
+        elseif ($RecipientType -eq "DynamicDistributionGroup") {
             try {
                 # Fetch Dynamic Distribution Group Information
                 $ThisDistroGroup = Get-DynamicDistributionGroup -Identity $GUID
@@ -522,15 +490,10 @@ foreach ($DomainToReplace in $Domains) {
                 $ErrorLog += "General Dynamic Group Error: $($_.Exception.Message)"
                 $UserObj | Add-Member -MemberType NoteProperty -Name "GeneralError" -Value $ErrorLog
             }
-            
-            # Append to report
-            #$report += $UserObj
-
-            Write-host "CUrrent Object Completed"
         }
 
         # Handling Group Mailboxes - Completed
-        elseif ($RecipientDetails -eq "GroupMailbox") {
+        elseif (($RecipientType -eq "MailUniversalDistributionGroup") -and ($RecipientDetails -eq "GroupMailbox")) {
             try {
                 # Fetch Group Mailbox (Unified Group) Information
                 $ThisUnifiedGroup = Get-UnifiedGroup -Identity $GUID
@@ -601,32 +564,14 @@ foreach ($DomainToReplace in $Domains) {
                 $ErrorLog += "General Office 365 Group Error: $($_.Exception.Message)"
                 $UserObj | Add-Member -MemberType NoteProperty -Name "GeneralError" -Value $ErrorLog
             }
-        
-            # Append to report
-            #$report += $UserObj
-
-            Write-host "CUrrent Object Completed"
         }
         else {
             <# Action when all if and elseif conditions are false #>
 			$ActionValue = "************Unrecognized recipient type!"
 			Write-Host $ActionValue -foregroundcolor DarkRed
 			$UserObj | Add-Member -Membertype NoteProperty -Name "Action" -Value $Actionvalue
-			#$report += $UserObj
-            Write-host "CUrrent Object Completed"
         }
-<#
-        # Remove email addresses matching the domain
-        foreach ($Address in $Recipient.EmailAddresses) {
-            if ($Address -match $DomainToReplace) {
-                if ($LoggingOnly -eq "Remove") {
-                    Set-Mailbox $GUID -EmailAddresses @{Remove=$Address}
-                }
-                $UserObj | Add-Member -MemberType NoteProperty -Name "Removed Email" -Value $Address
-            }
-        }
-#>
-        $report += $UserObj
+        $report += $UserObj       
     }
 
     Write-Host "All relevant email addresses removed" -ForegroundColor magenta
