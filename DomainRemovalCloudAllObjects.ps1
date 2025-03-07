@@ -12,7 +12,7 @@ The script requires administrative credentials for Exchange Online and is design
 SubjectData
 
 .EXAMPLE
-.\EmailManagementScript.ps1
+.\DomainRemovalCloudAllObjects.ps1
 Executes the script, processing email addresses according to the domains listed in 'Domains.csv', updating properties, removing obsolete addresses, and generating a report of actions taken.
 #>
 
