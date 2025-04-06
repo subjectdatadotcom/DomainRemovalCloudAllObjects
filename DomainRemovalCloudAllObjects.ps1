@@ -600,7 +600,7 @@ foreach ($DomainToReplace in $Domains) {
     Write-Host "Finished checking all remaining users with the domain" -foregroundcolor Cyan
 
     # Export results
-    $FileName = "C:\Users\adminuser\OneDrive - Autoscout24 GmbH\Documents\DomainRemovalReport-" + (Get-Date -Format "yyyyMMdd-HHmm") + ".csv"
+    $FileName = "C:\Users\adminuser\DomainRemovalReport-" + (Get-Date -Format "yyyyMMdd-HHmm") + ".csv"
     $report | Export-Csv -Path $FileName -NoTypeInformation
 
 
