@@ -65,11 +65,14 @@ try {
 }
 
 
-#$DomainToUse = Read-Host -Prompt 'What domain to use (e.g. contoso.onmicrosoft.com)?'
-$DomainToUse = ""#$DomainToUse.Trim()
+$DomainToUse = Read-Host -Prompt 'What domain to use (e.g. contoso.onmicrosoft.com)?'
+$DomainToUse = $DomainToUse.Trim()
+#$DomainToUse = "M365x76832558.onmicrosoft.com"#$DomainToUse.Trim()
 
 # Prompt for logging option
-#$LoggingOnly = Read-Host -Prompt 'Type "Log" for Logging only or "Remove" for Logging AND removal of domain email address'
+$LoggingOnly = Read-Host -Prompt 'Type "Log" for Logging only or "Remove" for Logging AND removal of domain email address'
+$LoggingOnly = $LoggingOnly.Trim()
+#$LoggingOnly = "Remove"
 
 # Initialize report array
 $report = @()
@@ -115,7 +118,7 @@ foreach ($DomainToReplace in $Domains) {
 
                 if ($ThisUPNDomain -eq $DomainToReplace) {
                     $NewAddressToUse = "$ThisUPNUserNamePortion@$DomainToUse"
-                    <#
+                    
                     if ($LoggingOnly -eq "Remove") {
                         $Command = "Get-MSolUser -UserPrincipalName $ThisUPN | Set-MsolUserPrincipalName -NewUserPrincipalName $NewAddressToUse"
                         iex $Command -WarningVariable Warning1 -ErrorVariable Error1
@@ -127,7 +130,7 @@ foreach ($DomainToReplace in $Domains) {
                     }
 
                     $UserObj | Add-Member -MemberType NoteProperty -Name "Action_UPN" -Value "UPN changed from $ThisUPN to $NewAddressToUse"
-                    #>
+                    
                 }
 
                 # --- Update Primary SMTP ---
@@ -137,7 +140,7 @@ foreach ($DomainToReplace in $Domains) {
 
                 if ($ThisPrimarySMTPDomain -eq $DomainToReplace) {
                     $NewSMTP = "$ThisPrimarySMTPUserNamePortion@$DomainToUse"
-                    <#
+                    
                     if ($LoggingOnly -eq "Remove") {
                         $Command = "Set-Mailbox $GUID -WindowsEmailAddress $NewSMTP"
                         iex $Command -WarningVariable Warning2 -ErrorVariable Error2
@@ -149,7 +152,7 @@ foreach ($DomainToReplace in $Domains) {
                     }
 
                     $UserObj | Add-Member -MemberType NoteProperty -Name "Action_SMTP" -Value "Primary SMTP changed from $ThisPrimarySMTP to $NewSMTP"
-                    #>
+                    
                 }
 
                 # --- Remove Email Addresses matching the domain ---
@@ -158,7 +161,7 @@ foreach ($DomainToReplace in $Domains) {
                     $AddressDomain = (($Address.Split(":")[1]).Split("@")[1])
 
                     if ($AddressDomain -eq $DomainToReplace) {
-                        <#
+                        
                         if ($LoggingOnly -eq "Remove") {
                             $Command = "Set-Mailbox $GUID -EmailAddresses @{Remove='$Address'}"
                             iex $Command -WarningVariable Warning3 -ErrorVariable Error3
@@ -170,7 +173,7 @@ foreach ($DomainToReplace in $Domains) {
                         }
 
                         $UserObj | Add-Member -MemberType NoteProperty -Name "Action_EmailRemoval" -Value "Email address removed - $Address from $ThisMailbox.DisplayName"
-                        #>
+                        
                     }
                 }
 
@@ -188,6 +191,120 @@ foreach ($DomainToReplace in $Domains) {
             }
         }
 
+        # Handling Shared Mailbox
+       elseif ($RecipientDetails -eq "SharedMailbox") {
+            $ThisMailbox = Get-Mailbox -Identity $GUID
+            $UserObj | Add-Member -MemberType NoteProperty -Name "IsObjectSyncedAADC" -Value $ThisMailbox.IsDirSynced
+
+            $WarningLog = @()
+            $ErrorLog = @()
+
+            Write-Host "SharedMailbox - checking " $ThisMailbox.DisplayName -ForegroundColor Green
+
+            try {
+                # Prepare UPN Variables
+                $CurrentUPN = $ThisMailbox.UserPrincipalName
+                $NewUPN = $ThisMailbox.WindowsEmailAddress
+
+                # --- UPN Update (First) ---
+                $ThisUPN = $ThisMailbox.UserPrincipalName
+                $ThisUPNDomain = $ThisUPN.Split("@")[1]
+                $ThisUPNUserNamePortion = $ThisUPN.Split("@")[0]
+
+                if ($ThisUPNDomain -eq $DomainToReplace) {
+                    $NewAddressToUse = "$ThisUPNUserNamePortion@$DomainToUse"
+
+                    if ($LoggingOnly -eq "Remove") {
+                        try {
+                            $Command = "Get-MsolUser -UserPrincipalName `"$ThisUPN`" | Set-MsolUserPrincipalName -NewUserPrincipalName `"$NewAddressToUse`""
+                            iex $Command -WarningVariable WarningUPN -ErrorVariable ErrorUPN
+                            Start-Sleep -Seconds 1  # Allow update to apply
+
+                            # Append Warning and Error messages
+                            if ($WarningUPN) { $WarningLog += "UPN Warning: " + ($WarningUPN -join " | ") }
+                            if ($ErrorUPN) { $ErrorLog += "UPN Error: " + ($ErrorUPN -join " | ") }
+
+                            Write-Host "UPN changed from $ThisUPN to $NewAddressToUse for SharedMailbox" -ForegroundColor Green
+                            $UserObj | Add-Member -MemberType NoteProperty -Name "Action_UPN" -Value "UPN changed from $ThisUPN to $NewAddressToUse"
+                        } catch {
+                            Write-Warning "Failed to change UPN from $ThisUPN to $($NewAddressToUse): $($_.Exception.Message)"
+                            $ErrorLog += "UPN Error: $($_.Exception.Message)"
+                        }
+                    }
+                }
+
+
+                # --- Primary SMTP Update ---
+                $ThisPrimarySMTP = $ThisMailbox.PrimarySMTPAddress
+                $ThisPrimarySMTPDomain = $ThisPrimarySMTP.Split("@")[1]
+                $ThisPrimarySMTPUserNamePortion = $ThisPrimarySMTP.Split("@")[0]
+
+                if ($ThisPrimarySMTPDomain -eq $DomainToReplace) {
+                    $NewSMTP = "$ThisPrimarySMTPUserNamePortion@$DomainToUse"
+
+                    if ($LoggingOnly -eq "Remove") {
+                        try {
+                            $Command = "Set-Mailbox -Identity `"$GUID`" -WindowsEmailAddress `"$NewSMTP`""
+                            iex $Command -WarningVariable WarningSMTP -ErrorVariable ErrorSMTP
+                            Start-Sleep -Seconds 1
+
+                            if ($WarningSMTP) { $WarningLog += "SMTP Warning: " + ($WarningSMTP -join " | ") }
+                            if ($ErrorSMTP) { $ErrorLog += "SMTP Error: " + ($ErrorSMTP -join " | ") }
+
+                            Write-Host "Primary SMTP changed from $ThisPrimarySMTP to $NewSMTP" -ForegroundColor Green
+                            $UserObj | Add-Member -MemberType NoteProperty -Name "Action_SMTP" -Value "Primary SMTP changed from $ThisPrimarySMTP to $NewSMTP"
+                        } catch {
+                            Write-Warning "Failed to change Primary SMTP: $($_.Exception.Message)"
+                            $ErrorLog += "SMTP Error: $($_.Exception.Message)"
+                        }
+                    }
+                }
+
+                # --- Remove Email Addresses matching the domain ---
+                Write-Host "Checking SharedMailbox addresses on " $ThisMailbox.DisplayName
+                foreach ($Address in $ThisMailbox.EmailAddresses) {
+                    $AddressValue = $Address -split ":" | Select-Object -Last 1
+                    $AddressDomain = $AddressValue.Split("@")[1]
+
+                    if ($AddressDomain -eq $DomainToReplace) {
+                        if ($LoggingOnly -eq "Remove") {
+                            try {
+                                $Command = "Set-Mailbox -Identity `"$GUID`" -EmailAddresses @{Remove='$Address'}"
+                                iex $Command -WarningVariable WarningRemove -ErrorVariable ErrorRemove
+                                Start-Sleep -Seconds 1
+
+                                if ($WarningRemove) { $WarningLog += "Email Removal Warning: " + ($WarningRemove -join " | ") }
+                                if ($ErrorRemove) { $ErrorLog += "Email Removal Error: " + ($ErrorRemove -join " | ") }
+
+                                Write-Host "Removed $Address from $ThisMailbox.DisplayName" -ForegroundColor DarkRed
+                                $UserObj | Add-Member -MemberType NoteProperty -Name "Action_EmailRemoval" -Value "Email address removed - $Address from $ThisMailbox.DisplayName"
+                            } catch {
+                                Write-Warning "Failed to remove email address $($Address): $($_.Exception.Message)"
+                                $ErrorLog += "Email Removal Error: $($_.Exception.Message)"
+                            }
+                        }
+                    } else {
+                        Write-Host "This address does not need to be removed"
+                    }
+                }
+
+                # -- Append Exception Type & Message for each condition --
+                if ($WarningLog -or $ErrorLog) {
+                    $UserObj | Add-Member -MemberType NoteProperty -Name "ExceptionType" -Value "Warnings & Errors"
+                    $UserObj | Add-Member -MemberType NoteProperty -Name "Message" -Value (($WarningLog + $ErrorLog) -join " | ")
+                }
+            }
+            catch {
+                Write-Host $ThisMailbox.UserPrincipalName -ForegroundColor DarkMagenta
+                $ErrorLog += "General Error: $($_.Exception.Message)"
+                $UserObj | Add-Member -MemberType NoteProperty -Name "GeneralError" -Value $ErrorLog
+            }
+
+            $report += $UserObj
+        }
+
+
+        
         # Handling MailUser - Completed - Yellow
         elseif ($RecipientType -eq "MailUser") {
              try {
@@ -208,7 +325,7 @@ foreach ($DomainToReplace in $Domains) {
 
                 if ($ThisUPNDomain -eq $DomainToReplace) {
                     $NewAddressToUse = "$ThisUPNUserNamePortion@$DomainToUse"
-                    <#
+                    
                     if ($LoggingOnly -eq "Remove") {
                         $Command = "Get-MSolUser -UserPrincipalName $ThisUPN | Set-MsolUserPrincipalName -NewUserPrincipalName $NewAddressToUse"
                         iex $Command -WarningVariable Warning1 -ErrorVariable Error1
@@ -220,7 +337,7 @@ foreach ($DomainToReplace in $Domains) {
                     }
 
                     $UserObj | Add-Member -MemberType NoteProperty -Name "Action_UPN" -Value "UPN changed from $ThisUPN to $NewAddressToUse"
-                    #>
+                    
                 }
 
                 # -- Primary SMTP Update --
@@ -230,7 +347,7 @@ foreach ($DomainToReplace in $Domains) {
 
                 if ($ThisPrimarySMTPDomain -eq $DomainToReplace) {
                     $NewSMTP = "$ThisPrimarySMTPUserNamePortion@$DomainToUse"
-                    <#
+                    
                     if ($LoggingOnly -eq "Remove") {
                         $Command = "Set-MailUser $GUID -PrimarySMTPAddress $NewSMTP"
                         iex $Command -WarningVariable Warning2 -ErrorVariable Error2
@@ -242,7 +359,7 @@ foreach ($DomainToReplace in $Domains) {
                     }
 
                     $UserObj | Add-Member -MemberType NoteProperty -Name "Action_SMTP" -Value "Primary SMTP changed from $ThisPrimarySMTP to $NewSMTP"
-                    #>
+                    
                 }
 
                 # -- Email Address Removal --
@@ -252,7 +369,7 @@ foreach ($DomainToReplace in $Domains) {
                     $AddressDomain = (($Address.Split(":")[1]).Split("@")[1]) # Extract domain from email address
 
                     if ($AddressDomain -eq $DomainToReplace) {
-                        <#
+                        
                         if ($LoggingOnly -eq "Remove") {
                             $Command = "Set-MailUser $GUID -EmailAddresses @{Remove='$Address'}"
                             iex $Command -WarningVariable Warning3 -ErrorVariable Error3
@@ -266,7 +383,7 @@ foreach ($DomainToReplace in $Domains) {
                         $ActionValue = "Email address removed - $Address from $ThisMailUser.DisplayName"
                         Write-Host $ActionValue -ForegroundColor DarkRed
                         $UserObj | Add-Member -MemberType NoteProperty -Name "Action_EmailRemoval" -Value $ActionValue
-                        #>
+                        
                     } else {
                         Write-Host "This address does not need to be removed"
                     }
@@ -309,7 +426,7 @@ foreach ($DomainToReplace in $Domains) {
                 # -- Primary SMTP Update --
                 if ($ThisPrimarySMTPDomain -eq $DomainToReplace) {
                     $NewSMTP = "$ThisPrimarySMTPGroupNamePortion@$DomainToUse"
-                    <#
+                    
                     if ($LoggingOnly -eq "Remove") {
                         $Command = "Set-DistributionGroup $GUID -PrimarySMTPAddress $NewSMTP"
                         iex $Command -WarningVariable Warning1 -ErrorVariable Error1
@@ -321,7 +438,7 @@ foreach ($DomainToReplace in $Domains) {
                     }
 
                     $UserObj | Add-Member -MemberType NoteProperty -Name "Action_SMTP" -Value "Primary SMTP changed from $ThisPrimarySMTP to $NewSMTP"
-                    #>
+                    
                 }
 
                 # -- Email Address Removal --
@@ -331,7 +448,7 @@ foreach ($DomainToReplace in $Domains) {
                     $AddressDomain = (($Address.Split(":")[1]).Split("@")[1]) # Extract domain from email address
 
                     if ($AddressDomain -eq $DomainToReplace) {
-                    <#
+                    
                         if ($LoggingOnly -eq "Remove") {
                             $Command = "Set-DistributionGroup $GUID -EmailAddresses @{Remove='$Address'}"
                             iex $Command -WarningVariable Warning2 -ErrorVariable Error2
@@ -345,7 +462,7 @@ foreach ($DomainToReplace in $Domains) {
                         $ActionValue = "Email address removed - $Address from $ThisDistroGroup.DisplayName"
                         Write-Host $ActionValue -ForegroundColor DarkRed
                         $UserObj | Add-Member -MemberType NoteProperty -Name "Action_EmailRemoval" -Value $ActionValue
-                        #>
+                        
                     } else {
                         Write-Host "This address does not need to be removed"
                     }
@@ -438,7 +555,7 @@ foreach ($DomainToReplace in $Domains) {
                 # -- Primary SMTP Update --
                 if ($ThisPrimarySMTPDomain -eq $DomainToReplace) {
                     $NewSMTP = "$ThisPrimarySMTPGroupNamePortion@$DomainToUse"
-                    <#
+                    
                     if ($LoggingOnly -eq "Remove") {
                         $Command = "Set-DynamicDistributionGroup $GUID -PrimarySMTPAddress $NewSMTP"
                         iex $Command -WarningVariable Warning1 -ErrorVariable Error1
@@ -450,7 +567,7 @@ foreach ($DomainToReplace in $Domains) {
                     }
         
                     $UserObj | Add-Member -MemberType NoteProperty -Name "Action_SMTP" -Value "Primary SMTP changed from $ThisPrimarySMTP to $NewSMTP"
-                    #>
+                    
                 }
         
                 # -- Email Address Removal --
@@ -460,7 +577,7 @@ foreach ($DomainToReplace in $Domains) {
                     $AddressDomain = (($Address.Split(":")[1]).Split("@")[1]) # Extract domain from email address
         
                     if ($AddressDomain -eq $DomainToReplace) {
-                        <#
+                        
                         if ($LoggingOnly -eq "Remove") {
                             $Command = "Set-DynamicDistributionGroup $GUID -EmailAddresses @{Remove='$Address'}"
                             iex $Command -WarningVariable Warning2 -ErrorVariable Error2
@@ -474,7 +591,7 @@ foreach ($DomainToReplace in $Domains) {
                         $ActionValue = "Email address removed - $Address from $ThisDistroGroup.DisplayName"
                         Write-Host $ActionValue -ForegroundColor DarkRed
                         $UserObj | Add-Member -MemberType NoteProperty -Name "Action_EmailRemoval" -Value $ActionValue
-                        #>
+                        
                     } else {
                         Write-Host "This address does not need to be removed"
                     }
@@ -511,7 +628,7 @@ foreach ($DomainToReplace in $Domains) {
                 # -- Primary SMTP Update --
                 if ($ThisPrimarySMTPDomain -eq $DomainToReplace) {
                     $NewSMTP = "$ThisPrimarySMTPGroupNamePortion@$DomainToUse"
-                    <#
+                    
                     if ($LoggingOnly -eq "Remove") {
                         $Command = "Set-UnifiedGroup $GUID -PrimarySMTPAddress $NewSMTP"
                         iex $Command -WarningVariable Warning1 -ErrorVariable Error1
@@ -523,7 +640,7 @@ foreach ($DomainToReplace in $Domains) {
                     }
         
                     $UserObj | Add-Member -MemberType NoteProperty -Name "Action_SMTP" -Value "Primary SMTP changed from $ThisPrimarySMTP to $NewSMTP"
-                    #>
+                    
                 }
         
                 # -- Email Address Removal --
@@ -533,7 +650,7 @@ foreach ($DomainToReplace in $Domains) {
                     $AddressDomain = (($Address.Split(":")[1]).Split("@")[1]) # Extract domain from email address
         
                     if ($AddressDomain -eq $DomainToReplace) {
-                        <#
+                        
                         if ($LoggingOnly -eq "Remove") {
                             $Command = "Set-UnifiedGroup $GUID -EmailAddresses @{Remove='$Address'}"
                             iex $Command -WarningVariable Warning2 -ErrorVariable Error2
@@ -547,7 +664,7 @@ foreach ($DomainToReplace in $Domains) {
                         $ActionValue = "Email address removed - $Address from $ThisUnifiedGroup.DisplayName"
                         Write-Host $ActionValue -ForegroundColor DarkRed
                         $UserObj | Add-Member -MemberType NoteProperty -Name "Action_EmailRemoval" -Value $ActionValue
-                        #>
+                        
                     } else {
                         Write-Host "This address does not need to be removed"
                     }
